@@ -25,6 +25,7 @@ The reranking helper is an optional bonus exercise and may remain unimplemented.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -393,8 +394,7 @@ class LLMJudge:
     """
 
     def __init__(self, judge_llm_fn: Callable[[str], str]) -> None:
-        # TODO: store judge_llm_fn
-        pass
+        self.judge_llm_fn = judge_llm_fn
 
     def score_response(
         self,
@@ -426,8 +426,41 @@ class LLMJudge:
                 "reasoning": str,               # raw LLM explanation
             }
         """
-        # TODO
-        raise NotImplementedError("Implement score_response")
+        rubric_text = "\n".join(
+            f"- {criterion}: {description}"
+            for criterion, description in rubric.items()
+        )
+        prompt = f"""You are an impartial evaluator.
+Score the answer against the rubric on a 0-1 scale.
+Return valid JSON in this shape: {{\"scores\": {{criterion: number}}, \"reasoning\": \"...\"}}.
+
+Question:
+{question}
+
+Answer:
+{answer}
+
+Rubric:
+{rubric_text}
+"""
+        raw_response = self.judge_llm_fn(prompt)
+        default_scores = {criterion: 0.5 for criterion in rubric}
+
+        try:
+            json_text = raw_response.strip()
+            fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", json_text, re.DOTALL | re.IGNORECASE)
+            if fenced:
+                json_text = fenced.group(1)
+            parsed = json.loads(json_text)
+            parsed_scores = parsed.get("scores", parsed) if isinstance(parsed, dict) else {}
+            scores: dict[str, float] = {}
+            for criterion in rubric:
+                value = parsed_scores.get(criterion, 0.5)
+                scores[criterion] = max(0.0, min(1.0, float(value)))
+            reasoning = parsed.get("reasoning", raw_response) if isinstance(parsed, dict) else raw_response
+            return {"scores": scores, "reasoning": str(reasoning)}
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return {"scores": default_scores, "reasoning": raw_response}
 
     def detect_bias(self, scores_batch: list[dict[str, Any]]) -> dict[str, Any]:
         """
@@ -448,8 +481,35 @@ class LLMJudge:
                 "severity_bias":   bool,
             }
         """
-        # TODO
-        raise NotImplementedError("Implement detect_bias")
+        all_scores: list[float] = []
+        for item in scores_batch:
+            scores = item.get("scores", {})
+            if isinstance(scores, dict):
+                all_scores.extend(
+                    float(value) for value in scores.values()
+                    if isinstance(value, (int, float))
+                )
+
+        average = sum(all_scores) / len(all_scores) if all_scores else 0.0
+
+        # Position bias can only be inferred when the caller supplies paired
+        # scores for the two presentation positions. Otherwise there is no
+        # position information in a normal score record, so report False.
+        position_differences: list[float] = []
+        for item in scores_batch:
+            first = item.get("first_response_score")
+            second = item.get("second_response_score")
+            if isinstance(first, (int, float)) and isinstance(second, (int, float)):
+                position_differences.append(float(first) - float(second))
+        positional_bias = bool(position_differences) and all(
+            difference > 0 for difference in position_differences
+        )
+
+        return {
+            "positional_bias": positional_bias,
+            "leniency_bias": average > 0.8,
+            "severity_bias": average < 0.3,
+        }
 
 
 # ---------------------------------------------------------------------------
