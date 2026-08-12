@@ -30,11 +30,11 @@ critical.
 
 | Metric | Acceptable Low Score Scenario | Critical Low Score Scenario | Action Required |
 |---|---|---|---|
-| Faithfulness | | | |
-| Answer Relevance | | | |
-| Context Recall | | | |
-| Context Precision | | | |
-| Completeness | | | |
+| Faithfulness | Khoảng 0.6–0.8 trong câu hỏi mở, khi câu trả lời vẫn không có claim sai nghiêm trọng. | Dưới 0.6 hoặc có claim không có evidence, đặc biệt với giá, chính sách và an toàn. | Kiểm tra grounding, prompt và nguồn context; block release nếu có hallucination nghiêm trọng. |
+| Answer Relevance | Khoảng 0.6–0.8 với câu hỏi mơ hồ hoặc cần hỏi lại để làm rõ. | Dưới 0.6, câu trả lời lạc intent hoặc thường xuyên không trả lời trực tiếp. | Phân tích routing/query rewriting và bổ sung test intent; block nếu lỗi phổ biến. |
+| Context Recall | Khoảng 0.6–0.8 với câu hỏi chỉ cần một phần evidence hoặc có thông tin ngoài phạm vi corpus. | Dưới 0.6 khi câu hỏi cần nhiều điều kiện nhưng retriever bỏ sót evidence bắt buộc. | Kiểm tra query, chunking và top-k; cải thiện retriever trước khi tối ưu generation. |
+| Context Precision | Khoảng 0.6–0.8 khi top-k có một ít chunk nhiễu nhưng evidence đúng vẫn đứng sớm. | Dưới 0.6 khi context đầu bảng chủ yếu không liên quan, làm tăng nguy cơ trả lời sai. | Rerank/lọc chunk và điều chỉnh top-k; theo dõi precision@k cùng faithfulness. |
+| Completeness | Khoảng 0.6–0.8 với câu hỏi đơn giản, expected answer có phần tùy chọn hoặc không cần liệt kê mọi chi tiết. | Dưới 0.6 hoặc bỏ sót điều kiện, ngoại lệ, bước xử lý hay cảnh báo quan trọng. | So sánh với expected answer, kiểm tra recall và prompt checklist; block nếu thiếu thông tin bắt buộc. |
 
 ### Exercise 1.2 — Bias trong LLM-as-a-Judge
 
@@ -46,15 +46,15 @@ Ba bias thường gặp:
 
 **Câu 1: Thiết kế experiment phát hiện position bias với ít nhất hai conditions.**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Tạo các cặp response A/B có chất lượng tương đương và chấm hai lần: condition 1 đặt A trước B, condition 2 hoán đổi thành B trước A. Giữ nguyên question và rubric, randomize thứ tự trên nhiều case. Đo tỷ lệ chọn từng response và mức chênh lệch score giữa hai thứ tự; chênh lệch có ý nghĩa cho thấy position bias.
 
 **Câu 2: Làm thế nào giảm verbosity bias bằng rubric design?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Chấm theo các claim đúng, evidence, độ đầy đủ và khả năng hành động; không cộng điểm chỉ vì câu trả lời dài. Quy định câu trả lời ngắn nhưng đủ ý có thể đạt điểm tối đa, đồng thời phạt lan man, lặp ý và claim ngoài phạm vi. Có thể giới hạn độ dài hợp lý và dùng ví dụ chuẩn hóa cho từng mức điểm.
 
 **Câu 3: Tại sao cần calibrate LLM judge với human labels?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Human labels cung cấp chuẩn tham chiếu để phát hiện judge chấm lệch, không nhất quán hoặc thiên vị theo domain. Calibration giúp điều chỉnh rubric/threshold, đo agreement và xác định các edge case cần human review, nhờ đó CI gate đáng tin cậy hơn.
 
 ### Exercise 1.3 — Evaluation trong CI/CD
 
@@ -62,13 +62,13 @@ Ba bias thường gặp:
 
 | Metric | Threshold | Lý do |
 |---|---:|---|
-| Faithfulness | | |
-| Answer Relevance | | |
-| Completeness | | |
+| Faithfulness | 0.80 | Không deploy nếu câu trả lời thường xuyên chứa claim không được evidence hỗ trợ; đây là rủi ro sai thông tin trực tiếp. |
+| Answer Relevance | 0.80 | Đảm bảo agent trả lời đúng intent thay vì phản hồi lạc đề hoặc né câu hỏi. |
+| Completeness | 0.80 | Giữ các điều kiện, ngoại lệ và bước xử lý bắt buộc; tránh câu trả lời thiếu dẫn đến khách hàng thao tác sai. |
 
 **Câu 2: Khi nào dùng offline evaluation, online evaluation và human review?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Dùng offline evaluation trước mỗi release, prompt/model change hoặc thay đổi retriever trên golden dataset cố định. Dùng online evaluation sau deploy để theo dõi traffic thật, drift, latency, cost và feedback liên tục. Dùng human review cho case high-stakes, khi metric vượt ngưỡng cảnh báo, case adversarial/ambiguous và để calibrate định kỳ LLM judge.
 
 ---
 
