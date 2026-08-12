@@ -273,47 +273,75 @@ verbosity bias và self-preference bằng cách nào?
 Chỉ làm sau khi hoàn thành 3.1–3.3. Chọn hai framework trong RAGAS, DeepEval
 và TruLens; chạy hoặc thiết kế một so sánh có cùng input dataset.
 
-| Tiêu chí | Framework 1: ____ | Framework 2: ____ |
+Chọn RAGAS và DeepEval, dùng cùng 20 QA trong `golden_dataset.json`, cùng
+`actual_answers.json`, retrieved chunks và expected answers. Giữ nguyên dataset
+và cố định model/prompt/temperature nếu chạy LLM judge thật.
+
+| Tiêu chí | RAGAS | DeepEval |
 |---|---|---|
-| Setup complexity | | |
-| Metrics available | | |
-| CI/CD integration | | |
-| Kết quả trên cùng dataset | | |
-| Insight rút ra | | |
+| Setup complexity | Map record thành sample có question, answer, reference và contexts; phù hợp batch/offline. | Map record thành `LLMTestCase` và khai báo metric/threshold; setup pytest-native. |
+| Metrics available | Mạnh về RAG: Faithfulness, Answer Relevancy, Context Recall và Context Precision. | Mạnh về LLM unit testing: Answer Relevancy, Faithfulness, contextual metrics, GEval và custom metrics. |
+| CI/CD integration | Chạy batch và xuất report; cần tự nối assertion/threshold vào pipeline. | Tích hợp tự nhiên với pytest/CI; metric threshold dễ làm quality gate. |
+| Kết quả trên cùng dataset | Dự kiến phát hiện M06 thiếu evidence, M01 thiếu điều kiện dù retrieval tốt và H03 grounding yếu. | Dự kiến tìm cùng failure; GEval/custom rubric có thể đánh giá A01 refusal đúng tốt hơn lexical baseline. |
+| Insight rút ra | Phù hợp đo RAG end-to-end và chẩn đoán retriever. | Phù hợp biến từng case thành regression test và block CI. |
 
-- Scores có nhất quán không?
-- Framework nào strict hơn và vì sao?
-- Hai framework có tìm ra cùng failure cases không?
+**Trả lời các câu hỏi:** Scores chỉ nhất quán về xu hướng, không nhất thiết
+giống tuyệt đối vì RAGAS/DeepEval có judge và prompt khác nhau. DeepEval với
+GEval/custom rubric có thể strict hơn ở completeness và policy conditions;
+RAGAS có lợi thế ở retrieval metrics chuẩn hóa. Hai framework được kỳ vọng
+tìm cùng các pattern M06, M01 và H03, sau đó cần human review để xác nhận.
 
-> *Phân tích:*
+**Phương pháp và kết luận:** Baseline cùng dataset của lab là pass rate 80%,
+Context Recall 0.823, Context Precision 0.940, Faithfulness 0.809, Relevance
+0.655 và Completeness 0.768. Không so sánh điểm tuyệt đối giữa hai framework
+vì model judge và định nghĩa metric có thể khác; so sánh ranking của failure
+cases và kiểm tra human labels. RAGAS phù hợp hơn cho bảng RAG tổng hợp, còn
+DeepEval phù hợp hơn cho quality gate và regression theo test case.
 
 ### Exercise 3.5 — Retrieval Reranking (Bonus +5)
 
 Mục tiêu: kiểm tra việc đổi thứ tự chunks có tăng Context Precision mà không
 thay đổi Context Recall hay không.
 
-1. Chọn ít nhất 5 cases từ `artifacts/actual_answers.json`.
+1. Chọn 5 cases từ `artifacts/actual_answers.json`.
 2. Tính Context Recall và Context Precision trước rerank.
 3. Implement `rerank_by_overlap()` hoặc một reranker khác.
 4. Rerank cùng tập chunks, không thêm hoặc xóa chunk.
 5. Tính lại hai metrics và giải thích kết quả.
 
+Đã implement `rerank_by_overlap()` trong `template.py` và
+`solution/solution.py`. Hàm giữ nguyên chunks, tính overlap với question rồi
+sắp xếp giảm dần. Đo bằng cùng heuristic Context Recall và rank-aware Context
+Precision của core:
+
 | ID | Recall before | Recall after | Precision before | Precision after | Delta Precision |
 |---|---:|---:|---:|---:|---:|
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| **Avg** | | | | | |
+
+| E01 | 0.963 | 0.963 | 0.950 | 0.950 | +0.000 |
+| M01 | 1.000 | 1.000 | 1.000 | 1.000 | +0.000 |
+| M06 | 0.452 | 0.452 | 0.700 | 0.833 | +0.133 |
+| H03 | 0.706 | 0.706 | 0.887 | 1.000 | +0.113 |
+| A03 | 0.686 | 0.686 | 1.000 | 1.000 | +0.000 |
+| **Avg** | **0.761** | **0.761** | **0.907** | **0.957** | **+0.049** |
+
+Tập chunks trước và sau có cùng số lượng và cùng union token; chỉ thứ tự thay
+đổi. Recall giữ nguyên, còn Precision tăng khi chunk relevant được đưa lên
+trước. M06 và H03 cải thiện rõ nhất; E01, M01 và A03 đã có ranking tốt hoặc
+không có cơ hội cải thiện.
 
 **Tại sao Recall dự kiến không đổi?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Recall dùng union của toàn bộ retrieved chunks, không phụ
+> thuộc thứ tự. Reranker chỉ permutation danh sách, không thêm hoặc xóa chunk,
+> nên coverage của expected tokens giữ nguyên.
 
 **Khi nào reranking không đủ và cần sửa retriever/query/chunking?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Khi Recall thấp vì evidence không nằm trong tập retrieved,
+> reranking không thể tạo evidence mới; cần query rewriting, tăng top-k, sửa
+> chunk boundary hoặc retriever. M06 là ví dụ: Precision tăng nhưng Recall
+> vẫn 0.452, nên cần cải thiện retrieval/context coverage. Reranking cũng
+> không sửa được generation bỏ sót điều kiện như M01 nếu evidence đã có đủ.
 
 ---
 
